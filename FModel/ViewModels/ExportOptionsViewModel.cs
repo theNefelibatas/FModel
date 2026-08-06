@@ -131,6 +131,13 @@ public class ExportOptionsViewModel : ViewModel
         set => SetProperty(ref field, value);
     }
 
+    public IEnumerable<EMaterialJsonFormat> MaterialJsonFormats { get; } = Enum.GetValues<EMaterialJsonFormat>();
+    public EMaterialJsonFormat SelectedMaterialJsonFormat
+    {
+        get;
+        set => SetProperty(ref field, value);
+    }
+
     public IEnumerable<ETexturePlatform> TexturePlatforms { get; } = Enum.GetValues<ETexturePlatform>();
     public ETexturePlatform SelectedTexturePlatform
     {
@@ -218,6 +225,7 @@ public class ExportOptionsViewModel : ViewModel
         SelectedCompressionFormat = UserSettings.Default.CompressionFormat;
         SelectedMaterialDepth = UserSettings.Default.MaterialExportFormat;
         ExportMaterials = UserSettings.Default.SaveEmbeddedMaterials;
+        SelectedMaterialJsonFormat = UserSettings.Default.MaterialJsonFormat;
         SelectedTexturePlatform = UserSettings.Default.CurrentDir.TexturePlatform;
         SelectedTextureFormat = UserSettings.Default.TextureExportFormat;
         SelectedAnimatedTextureFormat = UserSettings.Default.AnimatedTextureExportFormat;
@@ -249,6 +257,7 @@ public class ExportOptionsViewModel : ViewModel
         UserSettings.Default.CompressionFormat = SelectedCompressionFormat;
         UserSettings.Default.MaterialExportFormat = SelectedMaterialDepth;
         UserSettings.Default.SaveEmbeddedMaterials = ExportMaterials;
+        UserSettings.Default.MaterialJsonFormat = SelectedMaterialJsonFormat;
         UserSettings.Default.CurrentDir.TexturePlatform = SelectedTexturePlatform;
         UserSettings.Default.TextureExportFormat = SelectedTextureFormat;
         UserSettings.Default.AnimatedTextureExportFormat = SelectedAnimatedTextureFormat;
@@ -278,6 +287,7 @@ public class ExportOptionsViewModel : ViewModel
         ExportAllTextureMips,
         SelectedMaterialDepth,
         ExportMaterials,
+        SelectedMaterialJsonFormat,
         ExportMorphTargets,
         SelectedSocketFormat,
         SelectedCompressionFormat,

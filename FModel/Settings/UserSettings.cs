@@ -68,6 +68,7 @@ public sealed class UserSettings : ViewModel
             Default.ExportAllTextureMips,
             Default.MaterialExportFormat,
             Default.SaveEmbeddedMaterials,
+            Default.MaterialJsonFormat,
             Default.SaveMorphTargets,
             Default.SocketExportFormat,
             Default.CompressionFormat,
@@ -651,6 +652,13 @@ public sealed class UserSettings : ViewModel
     {
         get => _saveEmbeddedMaterials;
         set => SetProperty(ref _saveEmbeddedMaterials, value);
+    }
+
+    private EMaterialJsonFormat _materialJsonFormat = EMaterialJsonFormat.Properties;
+    public EMaterialJsonFormat MaterialJsonFormat
+    {
+        get => _materialJsonFormat;
+        set => SetProperty(ref _materialJsonFormat, value);
     }
 
     private bool _saveSkeletonAsMesh;
