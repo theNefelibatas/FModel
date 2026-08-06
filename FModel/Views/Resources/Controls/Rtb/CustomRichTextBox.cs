@@ -112,6 +112,8 @@ public class FLogger : ITextFormatter
 
     public static void Text(string message, string color, bool newLine = false)
     {
+        if (Logger is null) return; // headless (CLI): no log control attached
+
         try
         {
             Logger.Document.ContentEnd.InsertTextInRun(message);
@@ -126,6 +128,8 @@ public class FLogger : ITextFormatter
 
     public static void Link(string message, string url, bool newLine = false)
     {
+        if (Logger is null) return; // headless (CLI): no log control attached
+
         try
         {
             new Hyperlink(new Run(message), Logger.Document.ContentEnd)
@@ -200,6 +204,8 @@ public class FLogger : ITextFormatter
 
     public static void ClearLogs()
     {
+        if (Logger is null) return; // headless (CLI): no log control attached
+
         Logger.Document.Blocks.Clear();
         _previous = 0;
     }
