@@ -32,6 +32,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
@@ -269,8 +270,20 @@
                        Text="For geometry-only exports, it can be significantly faster to disable this option." />
         </Grid>
 
-        <TextBlock Grid.Row="19" Grid.Column="0" Text="Export Morph Targets" VerticalAlignment="Center" Margin="0 0 0 15" />
-        <CheckBox Grid.Row="19" Grid.Column="2" Grid.ColumnSpan="3" Margin="0 0 0 15"
+        <TextBlock Grid.Row="19" Grid.Column="0" Text="Material JSON Format" VerticalAlignment="Center" Margin="0 0 0 15"
+                   ToolTip="Format of the material JSON exported alongside meshes. Properties JSON matches the 'Export Folder → Properties' output; Compact JSON is the parameter view." />
+        <ComboBox Grid.Row="19" Grid.Column="2" Grid.ColumnSpan="3" Margin="0 0 0 15"
+                  ItemsSource="{Binding MaterialJsonFormats}"
+                  SelectedItem="{Binding SelectedMaterialJsonFormat, Mode=TwoWay}">
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Converter={x:Static converters:EnumToStringConverter.Instance}}" />
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+
+        <TextBlock Grid.Row="20" Grid.Column="0" Text="Export Morph Targets" VerticalAlignment="Center" Margin="0 0 0 15" />
+        <CheckBox Grid.Row="20" Grid.Column="2" Grid.ColumnSpan="3" Margin="0 0 0 15"
                   IsChecked="{Binding ExportMorphTargets, Mode=TwoWay}"
                   Content="{Binding IsChecked, RelativeSource={RelativeSource Self}, Converter={x:Static converters:BoolToToggleConverter.Instance}}"
                   Style="{DynamicResource {x:Static adonisUi:Styles.ToggleSwitch}}" />
