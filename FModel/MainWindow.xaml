@@ -82,7 +82,7 @@
 
             <Menu Grid.Column="0">
                 <MenuItem Header="Directory">
-                    <MenuItem Header="Selector" Command="{Binding MenuCommand}" CommandParameter="Directory_Selector">
+                    <MenuItem Header="Back to Launcher" Command="{Binding MenuCommand}" CommandParameter="Directory_Selector">
                         <MenuItem.Icon>
                             <Viewbox Width="16" Height="16">
                                 <Canvas Width="24" Height="24">

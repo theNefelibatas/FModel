@@ -49,9 +49,12 @@ public class GameSelectorViewModel : ViewModel
     public GameSelectorViewModel(string gameDirectory)
     {
         _detectedDirectories = new ObservableCollection<DirectorySettings>(EnumerateDetectedGames().Where(x => x != null));
-        foreach (var dir in UserSettings.Default.PerDirectory.Values.Where(x => x.IsManual))
+        /* 去重：两端都按归一化目录推导档案 Id 再比较（跨来源路径先归一化）。 */
+        foreach (var profile in ProfileStore.Enumerate(out _))
         {
-            _detectedDirectories.Add((DirectorySettings) dir.Clone());
+            var id = ProfileStore.ComputeId(ProfileStore.NormalizeDirectory(profile.Game.GameDirectory));
+            if (_detectedDirectories.All(x => ProfileStore.ComputeId(ProfileStore.NormalizeDirectory(x.GameDirectory)) != id))
+                _detectedDirectories.Add((DirectorySettings) profile.Game.Clone());
         }
 
         DetectedDirectories = new ReadOnlyObservableCollection<DirectorySettings>(_detectedDirectories);
@@ -69,13 +72,12 @@ public class GameSelectorViewModel : ViewModel
     public void AddUndetectedDir(string gameDirectory) => AddUndetectedDir(gameDirectory.SubstringAfterLast('\\'), gameDirectory);
     public void AddUndetectedDir(string gameName, string gameDirectory)
     {
-        if (TryDetectUeVersion(gameDirectory, out var ueVersion, out var newGameDirectory))
+        if (TryDetectUeVersion(gameDirectory, out var ueVersion, out _))
         {
-            // gameDirectory = newGameDirectory; // directory was changed to point to the correct paks folder
+            // 检测到版本即用它；目录保持用户所选，规范化在档案层做。
         }
 
         var setting = DirectorySettings.Default(gameName, gameDirectory, true, ueVersion);
-        UserSettings.Default.PerDirectory[gameDirectory] = setting;
         _detectedDirectories.Add(setting);
         SelectedDirectory = DetectedDirectories.Last();
     }
@@ -184,9 +186,14 @@ public class GameSelectorViewModel : ViewModel
 
     public void DeleteSelectedGame()
     {
-        UserSettings.Default.PerDirectory.Remove(SelectedDirectory.GameDirectory); // should not be a problem
+        if (SelectedDirectory == null) return;
+        var id = ProfileStore.ComputeId(ProfileStore.NormalizeDirectory(SelectedDirectory.GameDirectory));
+        /* 运行中游戏不删文件也不移除列表行：只删文件会留下幽灵条目，而游戏进程随时可能保存档案。 */
+        if (ProfileLock.IsHeldByAliveProcess(id)) return;
+        if (ProfileStore.ExistsById(id))
+            ProfileStore.Delete(id); // 命中档案才删；自动检测的游戏不删文件
         _detectedDirectories.Remove(SelectedDirectory);
-        SelectedDirectory = DetectedDirectories.Last();
+        SelectedDirectory = DetectedDirectories.LastOrDefault();
     }
 
     public int ClearMissingDirectories()
