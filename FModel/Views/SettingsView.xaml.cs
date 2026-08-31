@@ -45,7 +45,7 @@ public partial class SettingsView
     {
         var restart = _applicationView.SettingsView.Save(out var whatShouldIDo);
         if (restart)
-            _applicationView.RestartWithWarning();
+            _applicationView.Restart();
 
         Close();
 

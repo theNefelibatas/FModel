@@ -109,13 +109,9 @@ public class ApplicationViewModel : ViewModel
 #endif
         LoadingModes = new LoadingModesViewModel();
 
-        UserSettings.Default.CurrentDir = AvoidEmptyGameDirectory(false);
+        /* 档案已在 App 层装载（--game）；此处只做安全兜底：没有 CurrentDir 直接硬退出（与旧一致） */
         if (UserSettings.Default.CurrentDir is null)
-        {
-            //If no game is selected, many things will break before a shutdown request is processed in the normal way.
-            //A hard exit is preferable to an unhandled exception in this case
             Environment.Exit(0);
-        }
 
         CUE4Parse = new CUE4ParseViewModel();
         CUE4Parse.Provider.VfsRegistered += (sender, count) =>
@@ -143,65 +139,31 @@ public class ApplicationViewModel : ViewModel
         Status.SetStatus(EStatusKind.Ready);
     }
 
-    public DirectorySettings AvoidEmptyGameDirectory(bool bAlreadyLaunched)
-    {
-        var gameDirectory = UserSettings.Default.GameDirectory;
-        if (!bAlreadyLaunched && GameSelectorViewModel.IsGameDirectoryAvailable(gameDirectory) && UserSettings.Default.PerDirectory.TryGetValue(gameDirectory, out var currentDir))
-            return currentDir;
-
-        Status.SetStatus(EStatusKind.Configuring);
-        var gameLauncherViewModel = new GameSelectorViewModel(gameDirectory);
-        var result = new DirectorySelector(gameLauncherViewModel).ShowDialog();
-        Status.SetStatus(EStatusKind.Ready);
-        if (!result.HasValue || !result.Value) return null;
-
-        UserSettings.Default.GameDirectory = gameLauncherViewModel.SelectedDirectory.GameDirectory;
-        if (!bAlreadyLaunched || UserSettings.Default.CurrentDir.Equals(gameLauncherViewModel.SelectedDirectory))
-            return gameLauncherViewModel.SelectedDirectory;
-
-        // UserSettings.Save(); // ??? change key then change game, key saved correctly what?
-        UserSettings.Default.CurrentDir = gameLauncherViewModel.SelectedDirectory;
-        RestartWithWarning();
-        return null;
-    }
-
+    /* 拖入目录：建/复用档案并启动新游戏进程；当前窗口不动。 */
     public DirectorySettings AddGameDirectory(string directory)
     {
-        if (Status.Kind is EStatusKind.Configuring)
-        {
-            var directorySelector = Helper.GetWindow<DirectorySelector>("Directory Selector", null);
-            directorySelector.AddManualGame(directory);
-            return null;
-        }
-        else
-        {
-            Status.SetStatus(EStatusKind.Configuring);
-            var gameLauncherViewModel = new GameSelectorViewModel(UserSettings.Default.GameDirectory);
-            var directorySelector = new DirectorySelector(gameLauncherViewModel);
-            directorySelector.AddManualGame(directory);
-            var result = directorySelector.ShowDialog();
-            Status.SetStatus(EStatusKind.Ready);
-            if (!result.HasValue || !result.Value)
-                return null;
+        if (string.IsNullOrWhiteSpace(directory)) return null;
 
-            UserSettings.Default.GameDirectory = gameLauncherViewModel.SelectedDirectory.GameDirectory;
-            if (UserSettings.Default.CurrentDir.Equals(gameLauncherViewModel.SelectedDirectory))
-                return gameLauncherViewModel.SelectedDirectory;
+        var vm = new GameSelectorViewModel(directory);
+        vm.AddUndetectedDir(directory);
+        var selected = vm.SelectedDirectory;
+        if (selected is null) return null;
 
-            UserSettings.Default.CurrentDir = gameLauncherViewModel.SelectedDirectory;
-            RestartWithWarning();
-            return null;
-        }
-    }
-
-    public void RestartWithWarning()
-    {
-        MessageBox.Show("It looks like you just changed something.\nFModel will restart to apply your changes.", "Uh oh, a restart is needed", MessageBoxButton.OK, MessageBoxImage.Warning);
-        Restart();
+        var profile = GameProfile.FromSettings(
+            ProfileStore.ComputeId(ProfileStore.NormalizeDirectory(selected.GameDirectory)),
+            selected, new UserSettings());
+        profile = ProfileStore.Create(profile);
+        LaunchProfileProcess(profile.Id);
+        return selected;
     }
 
     public void Restart()
     {
+        /* 先释放档案锁再拉起新进程：新进程要取得同一档案的锁，不能撞"已在运行"（双释放安全）。 */
+        App.DisposeProfileLockForRelaunch();
+        /* 档案模式下重启仍回到同一游戏（不落进启动器）：
+         * 设置变更需重启与致命异常重启都带 --game=<当前档案>；无档案（启动器模式）则原样无参。 */
+        var gameId = UserSettings.Default.CurrentProfileId;
         var path = Path.GetFullPath(Environment.GetCommandLineArgs()[0]);
         if (path.EndsWith(".dll"))
         {
@@ -210,7 +172,7 @@ public class ApplicationViewModel : ViewModel
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "dotnet",
-                    Arguments = $"\"{path}\"",
+                    Arguments = string.IsNullOrEmpty(gameId) ? $"\"{path}\"" : $"\"{path}\" --game={gameId}",
                     UseShellExecute = false,
                     RedirectStandardOutput = false,
                     RedirectStandardError = false,
@@ -225,6 +187,7 @@ public class ApplicationViewModel : ViewModel
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = path,
+                    Arguments = string.IsNullOrEmpty(gameId) ? string.Empty : $"--game={gameId}",
                     UseShellExecute = false,
                     RedirectStandardOutput = false,
                     RedirectStandardError = false,
@@ -234,6 +197,54 @@ public class ApplicationViewModel : ViewModel
         }
 
         Application.Current.Shutdown();
+    }
+
+    /* 返回启动器：保存当前档案 → 退出本进程，启动器在则激活、不在则拉起 */
+    public void BackToLauncher()
+    {
+        App.DisposeProfileLockForRelaunch();
+        UserSettings.Save();
+        var launcherExe = Path.GetFullPath(Environment.GetCommandLineArgs()[0]);
+        var startInfo = launcherExe.EndsWith(".dll")
+            ? new ProcessStartInfo { FileName = "dotnet", Arguments = $"\"{launcherExe}\" --launcher", UseShellExecute = false, CreateNoWindow = true }
+            : new ProcessStartInfo { FileName = launcherExe, Arguments = "--launcher", UseShellExecute = false, CreateNoWindow = true };
+        Process.Start(startInfo);
+        Application.Current.Shutdown();
+    }
+
+    /* 启动一个游戏进程（--game=<Id>）；exe/dll 判定与 Restart 相同 */
+    public static void LaunchProfileProcess(string profileId)
+    {
+        var path = Path.GetFullPath(Environment.GetCommandLineArgs()[0]);
+        var startInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
+            CreateNoWindow = true
+        };
+        if (path.EndsWith(".dll"))
+            startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"\"{path}\" --game={profileId}",
+                UseShellExecute = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+                CreateNoWindow = true
+            };
+        else if (path.EndsWith(".exe"))
+            startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = path,
+                Arguments = $"--game={profileId}",
+                UseShellExecute = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+                CreateNoWindow = true
+            };
+
+        System.Diagnostics.Process.Start(startInfo);
     }
 
     public async Task UpdateProvider(bool isLaunch)
