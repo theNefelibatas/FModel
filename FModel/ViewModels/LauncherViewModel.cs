@@ -28,6 +28,7 @@ public class LauncherViewModel : ViewModel
         public DateTime LastUsedAt { get; init; }
         public bool IsRunning { get; set; }
         public bool IsCorrupt { get; init; }
+        public bool IsDirectoryMissing { get; init; }
         public string LastUsedLabel => LastUsedAt == DateTime.MinValue ? "" : $"Last used: {LastUsedAt:yyyy-MM-dd HH:mm}";
     }
 
@@ -69,7 +70,9 @@ public class LauncherViewModel : ViewModel
                 GameDirectory = p.Game.GameDirectory,
                 UeVersion = p.Game.UeVersion.ToString(),
                 LastUsedAt = p.LastUsedAt,
-                IsRunning = ProfileLock.IsHeldByAliveProcess(p.Id)
+                IsRunning = ProfileLock.IsHeldByAliveProcess(p.Id),
+                /* 目录失效：仅对绝对路径判断；LIVE 触发串（非绝对路径）不视为目录缺失 */
+                IsDirectoryMissing = Path.IsPathRooted(p.Game.GameDirectory) && !Directory.Exists(p.Game.GameDirectory)
             })
             .OrderByDescending(p => p.LastUsedAt)
             .ToList();
@@ -107,6 +110,12 @@ public class LauncherViewModel : ViewModel
     private void OpenSelected()
     {
         if (SelectedProfile == null || SelectedProfile.IsCorrupt) return;
+        if (SelectedProfile.IsDirectoryMissing)
+        {
+            MessageBox.Show($"{SelectedProfile.GameName} directory no longer exists:\n{SelectedProfile.GameDirectory}",
+                "Game directory missing", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         if (SelectedProfile.IsRunning)
         {
             MessageBox.Show($"{SelectedProfile.GameName} is already running.", "Game already running", MessageBoxButton.OK, MessageBoxImage.Information);
