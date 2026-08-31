@@ -10,7 +10,6 @@ using CUE4Parse_Conversion.Writers.UEFormat.Enums;
 using CUE4Parse.UE4.Lua.unluac;
 using FModel.Extensions.Themes;
 using FModel.Framework;
-using FModel.ViewModels;
 using FModel.ViewModels.ApiEndpoints.Models;
 using FModel.Views.Snooper;
 using Newtonsoft.Json;
@@ -32,20 +31,31 @@ public sealed class UserSettings : ViewModel
     }
 
     private static bool _bSave = true;
+    /* 退出/变更时保存：写当前档案；空密钥保底在 ProfileStore.Save 内处理；全局设置文件不被写入。 */
     public static void Save()
     {
         if (!_bSave || Default == null) return;
-        Default.PerDirectory[Default.CurrentDir.GameDirectory] = Default.CurrentDir;
-        File.WriteAllText(FilePath, JsonConvert.SerializeObject(Default, Formatting.Indented));
+        if (string.IsNullOrEmpty(Default.CurrentProfileId))
+            return;
+        try
+        {
+            var profile = GameProfile.FromCurrent(Default.CurrentProfileId, Default.CurrentDir);
+            ProfileStore.Save(profile);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to save profile {Id}", Default.CurrentProfileId);
+        }
     }
 
+    /* Reset Settings 等：只删当前档案文件，并关闭后续保存（_bSave）——进程内退出（AppExit→Save）不重建已删除的档案。
+     * 同时清空 CurrentProfileId：Restart 据此不带 --game=<已删档案>，回落到启动器而非重启进一个已不存在的档案。 */
     public static void Delete()
     {
-        if (File.Exists(FilePath))
-        {
-            _bSave = false;
-            File.Delete(FilePath);
-        }
+        _bSave = false;
+        if (!string.IsNullOrEmpty(Default?.CurrentProfileId))
+            ProfileStore.Delete(Default.CurrentProfileId);
+        if (Default != null) Default.CurrentProfileId = null;
     }
 
     public static bool IsEndpointValid(EEndpointType type, out EndpointSettings endpoint)
@@ -131,6 +141,7 @@ public sealed class UserSettings : ViewModel
     }
 
     private string _gameDirectory = string.Empty;
+    [JsonIgnore]
     public string GameDirectory
     {
         get => _gameDirectory;
@@ -315,6 +326,7 @@ public sealed class UserSettings : ViewModel
     }
 
     private IDictionary<string, DirectorySettings> _perDirectory = new Dictionary<string, DirectorySettings>();
+    [JsonIgnore]
     public IDictionary<string, DirectorySettings> PerDirectory
     {
         get => _perDirectory;
@@ -324,15 +336,8 @@ public sealed class UserSettings : ViewModel
     [JsonIgnore]
     public DirectorySettings CurrentDir { get; set; }
 
-    /// <summary>
-    /// TO DELETEEEEEEEEEEEEE
-    /// </summary>
-    private IDictionary<string, GameSelectorViewModel.DetectedGame> _manualGames = new Dictionary<string, GameSelectorViewModel.DetectedGame>();
-    public IDictionary<string, GameSelectorViewModel.DetectedGame> ManualGames
-    {
-        get => _manualGames;
-        set => SetProperty(ref _manualGames, value);
-    }
+    [JsonIgnore]
+    public string CurrentProfileId { get; set; }
 
     private AuthResponse _lastAuthResponse = new() {AccessToken = "", ExpiresAt = DateTime.Now};
     public AuthResponse LastAuthResponse
