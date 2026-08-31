@@ -21,7 +21,9 @@ namespace FModel;
  * 完整包内路径（如 .uasset/.umap），省略扩展名不会自动补全；目录模式按目录匹配，不需要扩展名。
  * 文件模式先按 GUI 菜单置灰规则校验类型合法性，不合法即报错；执行层直接复用 GUI 的
  * Extract/ExportData —— 与右键点击后发生的事情完全一致，输出目录/格式/质量等均取 UserSettings。
- * 导出完成后进程退出（0 = 全部导出成功；1 = 任一资产失败或异常，失败详情见日志）。 */
+ * 导出完成后进程退出（0 = 全部导出成功；1 = 任一资产失败或异常，失败详情见日志）。
+ *  --game=<Id>：可选，指定要用的游戏档案（Id 见启动器列表或 Profiles 目录文件名）。
+ *  不传时使用档案中 LastUsedAt 最新的一个；无任何档案时失败退出（码 1）。 */
 public static class CliExporter
 {
     public sealed class CliRequest
@@ -30,6 +32,7 @@ public static class CliExporter
         public string ExportFile;
         public string ExportAssets;
         public EBulkType ExportType;
+        public string GameId;
     }
 
     /* App 用它预判是否进入 CLI 分支（GUI 模式不解析） */
@@ -39,7 +42,7 @@ public static class CliExporter
     /* 参数非法时抛 ArgumentException（App 在 CLI 分支捕获并报错退出） */
     public static CliRequest ParseRequest()
     {
-        string folder = null, file = null, assets = null, type = null;
+        string folder = null, file = null, assets = null, type = null, gameId = null;
 
         foreach (var arg in Environment.GetCommandLineArgs())
         {
@@ -52,6 +55,8 @@ public static class CliExporter
                 assets = arg["-ExportAssets=".Length..].Trim('"'); // 文件系统路径，不做分隔符归一化
             else if (arg.StartsWith("-ExportType=", StringComparison.OrdinalIgnoreCase))
                 type = arg["-ExportType=".Length..].Trim('"');
+            else if (arg.StartsWith("--game=", StringComparison.OrdinalIgnoreCase))
+                gameId = arg["--game=".Length..].Trim('"'); // 档案 Id（纯 token，不归一化路径）
         }
 
         var modes = (folder != null ? 1 : 0) + (file != null ? 1 : 0) + (assets != null ? 1 : 0);
@@ -66,7 +71,8 @@ public static class CliExporter
             ExportFolder = folder,
             ExportFile = file,
             ExportAssets = assets,
-            ExportType = ParseType(type)
+            ExportType = ParseType(type),
+            GameId = gameId
         };
     }
 
