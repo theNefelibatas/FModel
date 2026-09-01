@@ -15,6 +15,10 @@ using CUE4Parse.Utils;
 using FModel.Settings;
 using FModel.ViewModels.ApiEndpoints.Models;
 using Microsoft.Win32;
+using MessageBox = AdonisUI.Controls.MessageBox;
+using MessageBoxButton = AdonisUI.Controls.MessageBoxButton;
+using MessageBoxImage = AdonisUI.Controls.MessageBoxImage;
+using MessageBoxResult = AdonisUI.Controls.MessageBoxResult;
 
 namespace FModel.ViewModels;
 
@@ -190,8 +194,21 @@ public class GameSelectorViewModel : ViewModel
         var id = ProfileStore.ComputeId(ProfileStore.NormalizeDirectory(SelectedDirectory.GameDirectory));
         /* 运行中游戏不删文件也不移除列表行：只删文件会留下幽灵条目，而游戏进程随时可能保存档案。 */
         if (ProfileLock.IsHeldByAliveProcess(id)) return;
-        if (ProfileStore.ExistsById(id))
-            ProfileStore.Delete(id); // 命中档案才删；自动检测的游戏不删文件
+        if (!ProfileStore.ExistsById(id))
+        {
+            /* 非档案（自动检测的游戏）：只从列表移除，无文件可删，无需确认 */
+            _detectedDirectories.Remove(SelectedDirectory);
+            SelectedDirectory = DetectedDirectories.LastOrDefault();
+            return;
+        }
+
+        /* 命中档案才删；删除是永久性的（含 AES），先确认 */
+        var confirm = MessageBox.Show(
+            $"Delete game '{SelectedDirectory.GameName}'?\nIts settings and AES keys will be removed.",
+            "Delete game", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.OK) return;
+
+        ProfileStore.Delete(id); // 命中档案才删；自动检测的游戏不删文件
         _detectedDirectories.Remove(SelectedDirectory);
         SelectedDirectory = DetectedDirectories.LastOrDefault();
     }

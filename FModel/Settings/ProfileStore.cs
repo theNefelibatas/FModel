@@ -185,7 +185,9 @@ public static class ProfileStore
     public static void Delete(string id)
     {
         var path = FilePathById(id);
-        if (path != null) File.Delete(path);
+        if (path == null) return;
+        Log.Information("Deleted game profile {Id} ({File})", id, path);
+        File.Delete(path);
     }
 
     private static bool IsAesEmpty(AesResponse aes)
