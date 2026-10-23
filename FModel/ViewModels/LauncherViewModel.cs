@@ -116,11 +116,6 @@ public class LauncherViewModel : ViewModel
                 "Game directory missing", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        if (SelectedProfile.IsRunning)
-        {
-            MessageBox.Show($"{SelectedProfile.GameName} is already running.", "Game already running", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
         ApplicationViewModel.LaunchProfileProcess(SelectedProfile.Id);
     }
 
@@ -136,11 +131,6 @@ public class LauncherViewModel : ViewModel
             ProfileStore.ComputeId(ProfileStore.NormalizeDirectory(selected.GameDirectory)),
             selected, new UserSettings());
         profile = ProfileStore.Create(profile); // 同目录则复用既有档案（含已存设置）
-        if (ProfileLock.IsHeldByAliveProcess(profile.Id))
-        {
-            MessageBox.Show($"{profile.Game.GameName} is already running.", "Game already running", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
         Refresh();
         SelectedProfile = _profiles.FirstOrDefault(x => x.Id == profile.Id);
         ApplicationViewModel.LaunchProfileProcess(profile.Id);

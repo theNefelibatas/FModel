@@ -133,6 +133,8 @@ public class TabImage : ViewModel
 
 public class TabItem : ViewModel
 {
+    internal Action<string> DocumentCaptured { get; set; }
+    internal Action<string> FileSaved { get; set; }
     private GameFile _entry;
     public GameFile Entry
     {
@@ -397,6 +399,11 @@ public class TabItem : ViewModel
 
     public void SaveProperty(bool updateUi)
     {
+        if (DocumentCaptured != null)
+        {
+            Application.Current.Dispatcher.Invoke(() => DocumentCaptured(Document.Text));
+            return;
+        }
         var fileName = Path.ChangeExtension(Entry.Name, ".json");
         var directory = Path.Combine(UserSettings.Default.PropertiesDirectory,
             UserSettings.Default.KeepDirectoryStructure ? Entry.Directory : "", fileName).Replace('\\', '/');
@@ -421,6 +428,7 @@ public class TabItem : ViewModel
     {
         if (File.Exists(path))
         {
+            FileSaved?.Invoke(path);
             Interlocked.Increment(ref ApplicationService.ApplicationView.CUE4Parse.ExportedCount);
             Log.Information("{FileName} successfully saved", fileName);
             if (updateUi)

@@ -13,6 +13,7 @@ using System.Windows.Threading;
 using CUE4Parse;
 using FModel.Framework;
 using FModel.Services;
+using FModel.Automation;
 using FModel.Settings;
 using FModel.ViewModels;
 using FModel.Views;
@@ -33,6 +34,9 @@ public partial class App
 {
     /* CLI headless 模式：表现层不参与，异常不弹框（没有人能点） */
     private bool _isHeadless;
+    private GameOperations _automationOperations;
+    private LocalSessionServer _automationServer;
+    internal static string SessionLogPath { get; private set; }
 
     [DllImport("kernel32.dll")]
     private static extern bool AttachConsole(int dwProcessId);
@@ -43,6 +47,31 @@ public partial class App
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        var profilesDirectory = Environment.GetEnvironmentVariable("FMODEL_PROFILES_DIRECTORY");
+        if (profilesDirectory != null)
+        {
+            if (string.IsNullOrWhiteSpace(profilesDirectory) || !Directory.Exists(profilesDirectory))
+            {
+                ReportEarlyFailure("profiles", new DirectoryNotFoundException("FMODEL_PROFILES_DIRECTORY must name an existing directory."));
+                Environment.Exit(1);
+                return;
+            }
+            ProfileStore.ProfilesDirectory = Path.GetFullPath(profilesDirectory);
+        }
+        if (AutomationEntryPoint.IsClient)
+        {
+            _isHeadless = true;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            RunAutomationClient();
+            return;
+        }
+        if (AutomationEntryPoint.IsHost)
+        {
+            _isHeadless = true;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            RunAutomationHost();
+            return;
+        }
 #if DEBUG
         AttachConsole(-1);
 #endif
@@ -127,7 +156,7 @@ public partial class App
         new LauncherWindow().Show();
     }
 
-    private void ShowGameWindow(StartupEventArgs e, string profileId)
+    private async void ShowGameWindow(StartupEventArgs e, string profileId)
     {
         base.OnStartup(e);
 
@@ -140,7 +169,15 @@ public partial class App
         var profileLock = ProfileLock.TryAcquire(profile.Id);
         if (profileLock == null)
         {
-            EarlyFail($"profile '{profile.Id}' is already running", 1);
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            try
+            {
+                using var broker = new SessionBroker();
+                await broker.ExecuteAsync("show_gui", new Newtonsoft.Json.Linq.JObject { ["profileId"] = profile.Id }, CancellationToken.None);
+                // This process only activated the existing owner; it never loaded settings to save.
+                Environment.Exit(0);
+            }
+            catch (Exception ex) { EarlyFail($"Could not open the running profile: {ex.Message}", 1); }
             return;
         }
         _currentProfileLock = profileLock;
@@ -156,6 +193,7 @@ public partial class App
         try { ProfileStore.Save(profile); } catch (Exception ex) { Log.Warning(ex, "Could not update LastUsedAt"); }
 
         Log.Information("Opened game profile {Id} ({Name})", profile.Id, profile.Game.GameName);
+        StartAutomationServer(profile.Id, true);
         new MainWindow().Show();
     }
 
@@ -170,6 +208,86 @@ public partial class App
      * AppExit 释放锁（CLI 直接 Exit 时由锁文件 PID 自愈兜底）。 */
     private static ProfileLock _currentProfileLock;
     private static Mutex _launcherMutex;
+
+    private async void RunAutomationClient() => Environment.Exit(await AutomationEntryPoint.RunAsync());
+
+    private void StartAutomationServer(string profileId, bool hasGui)
+    {
+        _automationOperations = new GameOperations(hasGui);
+        _automationServer = new LocalSessionServer(_automationOperations, profileId);
+        _automationServer.Start();
+    }
+
+    internal void MarkAutomationReady()
+    {
+        if (_automationOperations != null) _automationOperations.Ready = true;
+    }
+
+    internal bool IsAutomationClosing => _automationOperations?.IsClosing == true;
+
+    internal void ShowSessionWindow()
+    {
+        Dispatcher.VerifyAccess();
+        if (MainWindow is not FModel.MainWindow window)
+        {
+            window = new MainWindow(true);
+            MainWindow = window;
+        }
+        window.Show();
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+        window.Activate();
+        _isHeadless = false;
+        _automationOperations.HasGui = true;
+    }
+
+    internal void HideSessionWindow()
+    {
+        Dispatcher.VerifyAccess();
+        MainWindow?.Hide();
+        _automationOperations.HasGui = false;
+        _isHeadless = true;
+    }
+
+    private async void RunAutomationHost()
+    {
+        // A persistent host must not retain a dependency on its launching client's console pipes.
+        Console.SetOut(TextWriter.Null);
+        Console.SetError(TextWriter.Null);
+        try
+        {
+            var id = GetProfileIdArg() ?? Environment.GetEnvironmentVariable(LocalProtocol.ProfileEnvironment);
+            var profile = ProfileStore.Enumerate(out _).FirstOrDefault(x => x.Id == id)
+                ?? throw new ArgumentException("Pass an existing profile ID through --game or FMODEL_AUTOMATION_PROFILE.");
+            _currentProfileLock = ProfileLock.TryAcquire(profile.Id)
+                ?? throw new InvalidOperationException("The profile is already open in another process.");
+            profile.ApplyToCurrent();
+            UserSettings.Default.CurrentProfileId = profile.Id;
+            InitializeSettings(false);
+            StartAutomationServer(profile.Id, false);
+            InstalledCodecs.Initialize();
+            var appView = ApplicationService.ApplicationView;
+            await appView.CUE4Parse.Initialize();
+            if (appView.Status.Kind == EStatusKind.Failed) throw new InvalidOperationException("Archive initialization failed. Inspect the profile log.");
+            await appView.AesManager.InitAes();
+            await appView.UpdateProvider(true);
+            if (appView.Status.Kind == EStatusKind.Failed) throw new InvalidOperationException("Archive mounting failed. Inspect the profile log.");
+            await appView.CUE4Parse.VerifyConsoleVariables();
+            await appView.CUE4Parse.VerifyOnDemandArchives();
+            await appView.CUE4Parse.InitMappings();
+            MarkAutomationReady();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Automation session initialization failed");
+            ReportEarlyFailure("automation session", ex);
+            if (_automationOperations != null) _automationOperations.InitializationError = ex.Message;
+            else
+            {
+                _currentProfileLock?.Dispose();
+                Environment.Exit(1);
+            }
+        }
+    }
 
     /* 重开机（Restart/BackToLauncher 拉起新进程）前先释放档案锁：新进程才能取得同一档案的锁。
      * 与 AppExit 中的释放是双保险——ProfileLock.Dispose 幂等（File.Exists 守卫）。 */
@@ -373,6 +491,7 @@ public partial class App
 #else
         var filePath = Path.Combine(UserSettings.Default.OutputDirectory, "Logs", $"FModel-Log-{DateTime.Now:yyyy-MM-dd}.log");
 #endif
+        SessionLogPath = filePath;
         const string template1 = "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Enriched}: {Message:lj}{NewLine}{Exception}";
         const string template2 = "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] [{ClassName}] {ObjectPath}: {Message:lj}{NewLine}{Exception}";
         Log.Logger = new LoggerConfiguration()
@@ -406,9 +525,10 @@ public partial class App
 
     private void AppExit(object sender, ExitEventArgs e)
     {
+        _automationServer?.Dispose();
         Log.Information("––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––");
         Log.CloseAndFlush();
-        UserSettings.Save();
+        if (!AutomationEntryPoint.IsHost) UserSettings.Save();
         _currentProfileLock?.Dispose();
         _launcherMutex?.Dispose();
         Environment.Exit(0);
@@ -417,6 +537,7 @@ public partial class App
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Log.Error("{Exception}", e.Exception);
+        if (_automationOperations is { Ready: false }) _automationOperations.InitializationError = e.Exception.Message;
 
         /* CLI 模式没有人能点对话框：记日志后以非零码退出，让调用方从退出码和日志判断。
          * Serilog 可能还没初始化（那时 Log.Error 是空操作），所以同时走标准错误兜底。 */
