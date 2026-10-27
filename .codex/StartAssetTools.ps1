@@ -23,29 +23,53 @@ try {
         if ($projects.Count -ne 1) {
             throw 'Cannot identify one desktop project. Set FMODEL_AUTOMATION_EXECUTABLE explicitly.'
         }
-        $projectXml = [xml](Get-Content -LiteralPath $projects[0].FullName -Raw)
-        $assemblyNodes = @($projectXml.SelectNodes('/Project/PropertyGroup/AssemblyName'))
-        # MSBuild defaults AssemblyName to the project filename when it is not set.
-        $assemblyName = $projects[0].BaseName
-        if ($assemblyNodes.Count -gt 0) {
-            if ($assemblyNodes.Count -ne 1 -or $assemblyNodes[0].InnerText.Contains('$(') -or
-                $assemblyNodes[0].ParentNode.HasAttribute('Condition')) {
-                throw 'AssemblyName requires evaluation. Set FMODEL_AUTOMATION_EXECUTABLE explicitly.'
-            }
-            $assemblyName = $assemblyNodes[0].InnerText
+        if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+            throw 'The .NET SDK is required to evaluate the project. Install it explicitly or set FMODEL_AUTOMATION_EXECUTABLE to an existing application.'
         }
-        $buildDirectory = Join-Path $projects[0].Directory.FullName 'bin'
+        $arguments = @('msbuild', $projects[0].Name, '-nologo',
+            '-getProperty:TargetDir,TargetName,_NativeExecutableExtension,UseAppHost,Configuration')
+        if ($env:FMODEL_AUTOMATION_CONFIGURATION) {
+            $arguments += "-property:Configuration=$env:FMODEL_AUTOMATION_CONFIGURATION"
+        }
+        # Evaluate from the project directory so SDK selection and relative imports match normal builds.
+        Push-Location $projects[0].Directory.FullName
+        try {
+            $evaluation = & dotnet @arguments 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                throw "MSBuild project evaluation failed: $evaluation"
+            }
+        }
+        finally { Pop-Location }
+        $properties = ($evaluation | ConvertFrom-Json).Properties
+        foreach ($name in @('TargetDir', 'TargetName', '_NativeExecutableExtension', 'UseAppHost', 'Configuration')) {
+            if ([string]::IsNullOrWhiteSpace($properties.$name)) {
+                throw "MSBuild did not resolve $name. Set FMODEL_AUTOMATION_EXECUTABLE explicitly."
+            }
+        }
+        if ($properties.UseAppHost -ne 'true') {
+            throw 'The selected project configuration does not produce an application host. Enable UseAppHost or set FMODEL_AUTOMATION_EXECUTABLE explicitly.'
+        }
+        $executableName = $properties.TargetName + $properties._NativeExecutableExtension
         if ($env:FMODEL_AUTOMATION_BUILD_DIRECTORY) {
             $buildDirectory = Resolve-RepositoryPath $env:FMODEL_AUTOMATION_BUILD_DIRECTORY
+            if (-not (Test-Path -LiteralPath $buildDirectory -PathType Container)) {
+                throw 'The explicit build directory does not exist.'
+            }
+            $candidates = @(Get-ChildItem -LiteralPath $buildDirectory -Filter $executableName -File -Recurse)
+            if ($candidates.Count -ne 1) {
+                throw 'Expected exactly one application in the explicit build directory. Set FMODEL_AUTOMATION_EXECUTABLE to select an existing build.'
+            }
+            $executable = $candidates[0].FullName.Replace('\', '/')
         }
-        if (-not (Test-Path -LiteralPath $buildDirectory -PathType Container)) {
-            throw 'Build directory does not exist. Build the desktop application or configure FMODEL_AUTOMATION_EXECUTABLE.'
+        else {
+            if (-not [IO.Path]::IsPathRooted($properties.TargetDir)) {
+                throw 'MSBuild TargetDir must resolve to an absolute path.'
+            }
+            $executable = (Join-Path $properties.TargetDir $executableName).Replace('\', '/')
+            if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+                throw "The evaluated application does not exist: $executable. Build configuration '$($properties.Configuration)' first, or set FMODEL_AUTOMATION_CONFIGURATION or FMODEL_AUTOMATION_EXECUTABLE explicitly."
+            }
         }
-        $candidates = @(Get-ChildItem -LiteralPath $buildDirectory -Filter "$assemblyName.exe" -File -Recurse)
-        if ($candidates.Count -ne 1) {
-            throw 'Expected exactly one built application. Set FMODEL_AUTOMATION_EXECUTABLE to select an existing build.'
-        }
-        $executable = $candidates[0].FullName.Replace('\', '/')
     }
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw 'The configured application executable does not exist.'
