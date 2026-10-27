@@ -199,17 +199,22 @@ public class ApplicationViewModel : ViewModel
         Application.Current.Shutdown();
     }
 
-    /* 返回启动器：保存当前档案 → 退出本进程，启动器在则激活、不在则拉起 */
+    /* 返回启动器时，自动化宿主只隐藏窗口，保留其他客户端正在使用的会话。 */
     public void BackToLauncher()
     {
-        App.DisposeProfileLockForRelaunch();
-        UserSettings.Save();
+        var keepSession = Automation.AutomationEntryPoint.IsHost;
+        if (!keepSession)
+        {
+            App.DisposeProfileLockForRelaunch();
+            UserSettings.Save();
+        }
         var launcherExe = Path.GetFullPath(Environment.GetCommandLineArgs()[0]);
         var startInfo = launcherExe.EndsWith(".dll")
             ? new ProcessStartInfo { FileName = "dotnet", Arguments = $"\"{launcherExe}\" --launcher", UseShellExecute = false, CreateNoWindow = true }
             : new ProcessStartInfo { FileName = launcherExe, Arguments = "--launcher", UseShellExecute = false, CreateNoWindow = true };
         Process.Start(startInfo);
-        Application.Current.Shutdown();
+        if (keepSession) ((App) Application.Current).HideSessionWindow();
+        else Application.Current.Shutdown();
     }
 
     /* 启动一个游戏进程（--game=<Id>）；exe/dll 判定与 Restart 相同 */

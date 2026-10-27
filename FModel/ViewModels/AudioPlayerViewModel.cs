@@ -169,6 +169,7 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
     private TimeSpan _position => _waveSource?.GetPosition() ?? TimeSpan.Zero;
     private PlaybackState _playbackState => _soundOut?.PlaybackState ?? PlaybackState.Stopped;
     private bool _hideToggle = false;
+    private float? _playbackVolumeOverride;
 
     public SpectrumProvider Spectrum { get; private set; }
     public float[] FftData { get; private set; }
@@ -197,9 +198,9 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
     private AudioCommand _audioCommand;
     public AudioCommand AudioCommand => _audioCommand ??= new AudioCommand(this);
 
-    public bool IsStopped => PlayedFile.PlaybackState == PlaybackState.Stopped;
-    public bool IsPlaying => PlayedFile.PlaybackState == PlaybackState.Playing;
-    public bool IsPaused => PlayedFile.PlaybackState == PlaybackState.Paused;
+    public bool IsStopped => _playbackState == PlaybackState.Stopped;
+    public bool IsPlaying => _playbackState == PlaybackState.Playing;
+    public bool IsPaused => _playbackState == PlaybackState.Paused;
 
     private readonly ObservableCollection<AudioFile> _audioFiles;
     public ICollectionView AudioFilesView { get; }
@@ -253,7 +254,7 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
         });
     }
 
-    public void AddToPlaylist(byte[] data, string filePath)
+    public void AddToPlaylist(byte[] data, string filePath, bool autoPlay = true)
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
@@ -261,6 +262,7 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
             if (_audioFiles.Count > 1) return;
 
             SelectedAudioFile = _audioFiles.Last();
+            if (!autoPlay) return;
             Load();
             Play();
         });
@@ -279,7 +281,7 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
         });
     }
 
-    public void Remove()
+    public void Remove(bool autoPlay = true)
     {
         if (_audioFiles.Count < 1) return;
         Application.Current.Dispatcher.Invoke(() =>
@@ -291,7 +293,8 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
                 Stop();
             }
 
-            _audioFiles.RemoveAt(SelectedAudioFile.Id);
+            var removedId = SelectedAudioFile.Id;
+            _audioFiles.RemoveAt(removedId);
             for (var i = 0; i < _audioFiles.Count; i++)
             {
                 _audioFiles[i].Id = i;
@@ -299,13 +302,23 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
 
             if (_audioFiles.Count < 1)
             {
+                SelectedAudioFile = null;
                 Unload();
                 return;
             }
 
-            SelectedAudioFile = SelectedAudioFile.Id >= _audioFiles.Count ? _audioFiles.Last() : _audioFiles[SelectedAudioFile.Id];
+            SelectedAudioFile = removedId >= _audioFiles.Count ? _audioFiles.Last() : _audioFiles[removedId];
 
-            if (!removedPlaying) return;
+            if (!removedPlaying)
+            {
+                if (PlayedFile.Id > removedId) PlayedFile.Id--;
+                return;
+            }
+            if (!autoPlay)
+            {
+                Unload();
+                return;
+            }
             Load();
             Play();
         });
@@ -486,7 +499,18 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
     public void Volume()
     {
         if (_soundOut == null) return;
+        _playbackVolumeOverride = null;
         _soundOut.Volume = UserSettings.Default.AudioPlayerVolume / 100;
+    }
+
+    internal object PlaybackSnapshot() => new { state = _playbackState.ToString(), seconds = _position.TotalSeconds,
+        duration = _length.TotalSeconds, volume = _soundOut?.Volume, playedId = PlayedFile.Id, selectedId = SelectedAudioFile?.Id };
+
+    internal void SetPlaybackVolume(float volume)
+    {
+        if (_soundOut == null) throw new InvalidOperationException("Load an audio track before setting playback volume.");
+        _playbackVolumeOverride = volume;
+        _soundOut.Volume = volume;
     }
 
     public void Device()
@@ -556,7 +580,7 @@ public class AudioPlayerViewModel : ViewModel, ISource, IDisposable
         if (_waveSource == null) return;
         _soundOut = new WasapiOut(true, AudioClientShareMode.Shared, 100, ThreadPriority.Highest) { Device = SelectedAudioDevice };
         _soundOut.Initialize(_waveSource.ToSampleSource().ToWaveSource(16));
-        _soundOut.Volume = UserSettings.Default.AudioPlayerVolume / 100;
+        _soundOut.Volume = _playbackVolumeOverride ?? UserSettings.Default.AudioPlayerVolume / 100;
     }
 
     private void ClearSoundOut()

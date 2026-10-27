@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using Serilog;
 
 namespace FModel.Settings;
@@ -11,27 +12,44 @@ namespace FModel.Settings;
 public sealed class ProfileLock : IDisposable
 {
     private readonly string _path;
+    private readonly FileStream _lease;
+    private int _disposed;
 
-    private ProfileLock(string path) => _path = path;
+    private ProfileLock(string path, FileStream lease)
+    {
+        _path = path;
+        _lease = lease;
+    }
 
     public static ProfileLock TryAcquire(string profileId)
     {
         Directory.CreateDirectory(ProfileStore.ProfilesDirectory);
         var path = Path.Combine(ProfileStore.ProfilesDirectory, $"{profileId}.lock");
-        if (File.Exists(path))
+        FileStream lease;
+        try
         {
-            var pid = ReadPid(path);
-            if (pid > 0 && ProcessAlive(pid))
+            // Keep an exclusive writer handle for the session lifetime. A PID file alone races during startup.
+            lease = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+        }
+        catch (IOException) { return null; }
+
+        try
+        {
+            using var reader = new StreamReader(lease, leaveOpen: true);
+            if (int.TryParse(reader.ReadToEnd().Trim(), out var pid) && pid > 0 && ProcessAlive(pid))
             {
+                lease.Dispose();
                 Log.Information("Profile {Id} is already locked by process {Pid}", profileId, pid);
                 return null;
             }
-            // 残留锁：清理后继续
-            try { File.Delete(path); } catch (Exception ex) { Log.Warning(ex, "Could not delete stale lock {Path}", path); }
+            lease.SetLength(0);
+            lease.Position = 0;
+            using var writer = new StreamWriter(lease, leaveOpen: true);
+            writer.Write(Environment.ProcessId);
+            writer.Flush();
+            return new ProfileLock(path, lease);
         }
-
-        File.WriteAllText(path, Environment.ProcessId.ToString());
-        return new ProfileLock(path);
+        catch { lease.Dispose(); throw; }
     }
 
     public static bool IsHeldByAliveProcess(string profileId)
@@ -44,13 +62,20 @@ public sealed class ProfileLock : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _lease.Dispose();
         try { if (File.Exists(_path)) File.Delete(_path); }
         catch (Exception ex) { Log.Warning(ex, "Could not delete lock {Path}", _path); }
     }
 
     private static int ReadPid(string path)
     {
-        try { return int.Parse(File.ReadAllText(path).Trim()); }
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            return int.Parse(reader.ReadToEnd().Trim());
+        }
         catch { return 0; }
     }
 

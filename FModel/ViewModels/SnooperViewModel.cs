@@ -45,6 +45,11 @@ public class SnooperViewModel : ViewModel, IDisposable
     private readonly SunActor _sun;
     private readonly EnvironmentActor _environment;
 
+    public bool IsVisible => _host.IsVisible;
+
+    internal void BeginAutomation() => _host.BeginAutomation();
+    internal void EndAutomation() => _host.EndAutomation();
+
     public bool CanOpenSnooper
     {
         get;
@@ -80,6 +85,7 @@ public class SnooperViewModel : ViewModel, IDisposable
         if (!CanOpenSnooper)
             return;
 
+        if (_host.GetWindow() is not { } editor) return;
         SetOptions(obj);
 
         Actor actor = obj switch
@@ -102,9 +108,6 @@ public class SnooperViewModel : ViewModel, IDisposable
             // there's nothing to show
             return;
         }
-
-        if (_host.GetWindow() is not { } editor)
-            return;
 
         editor.Invoke(() =>
         {
@@ -185,7 +188,7 @@ public class SnooperViewModel : ViewModel, IDisposable
         FLogger.Append(e);
     }
 
-    private void SetOptions(UObject obj)
+    internal static void SetOptions(UObject obj)
     {
         var settings = UserSettings.Default;
         Bridge.Options = new SnooperOptions(

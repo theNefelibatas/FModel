@@ -85,6 +85,7 @@ using FModel.Extensions;
 using FModel.Framework;
 using FModel.Services;
 using FModel.Settings;
+using FModel.Automation;
 using FModel.Views;
 using FModel.Views.Resources.Controls;
 using Newtonsoft.Json;
@@ -108,12 +109,15 @@ public class CUE4ParseViewModel : ViewModel
 
     private static readonly HttpClient _chunkClient = ManifestParseOptions.CreateDefaultClient();
 
+    public bool IsSnooperOpen => SnooperViewModel.Instance.IsVisible;
+
     public AbstractVfsFileProvider Provider { get; }
     public GameDirectoryViewModel GameDirectory { get; }
     public AssetsFolderViewModel AssetsFolder { get; }
     public SearchViewModel SearchVm { get; }
     public SearchViewModel RefVm { get; }
     public TabControlViewModel TabControl { get; }
+    private TabItem OperationTab => AssetOperationScope.Current?.Tab ?? TabControl.SelectedTab;
     public ConfigIni IoStoreOnDemand { get; }
     private Lazy<WwiseProvider> _wwiseProviderLazy;
     public WwiseProvider WwiseProvider => _wwiseProviderLazy.Value;
@@ -618,12 +622,12 @@ public class CUE4ParseViewModel : ViewModel
 
     public void Extract(CancellationToken cancellationToken, GameFile entry, bool addNewTab = false, EBulkType bulk = EBulkType.None)
     {
-        ApplicationService.ApplicationView.IsAssetsExplorerVisible = false;
+        if (AssetOperationScope.Current == null) ApplicationService.ApplicationView.IsAssetsExplorerVisible = false;
         Log.Information("User DOUBLE-CLICKED to extract '{FullPath}'", entry.Path);
 
-        if (addNewTab && TabControl.CanAddTabs) TabControl.AddTab(entry);
-        else TabControl.SelectedTab.SoftReset(entry);
-        TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector(entry.Extension);
+        if (AssetOperationScope.Current == null && addNewTab && TabControl.CanAddTabs) TabControl.AddTab(entry);
+        else OperationTab.SoftReset(entry);
+        OperationTab.Highlighter = AvalonExtensions.HighlighterSelector(entry.Extension);
 
         var updateUi = !HasFlag(bulk, EBulkType.Auto);
         var saveProperties = HasFlag(bulk, EBulkType.Properties);
@@ -636,19 +640,19 @@ public class CUE4ParseViewModel : ViewModel
             case "umap":
             {
                 var result = Provider.GetLoadPackageResult(entry);
-                TabControl.SelectedTab.TitleExtra = result.TabTitleExtra;
+                OperationTab.TitleExtra = result.TabTitleExtra;
 
                 if (saveProperties || updateUi)
                 {
                     var displayData = result.GetDisplayData(saveProperties);
-                    TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(displayData, Formatting.Indented), saveProperties, updateUi);
+                    OperationTab.SetDocumentText(JsonConvert.SerializeObject(displayData, Formatting.Indented), saveProperties, updateUi);
                     if (saveProperties) break; // do not search for viewable exports if we are dealing with jsons
                 }
 
                 if (saveDecompiled)
                 {
                     if (Decompile(entry, false))
-                        TabControl.SelectedTab.SaveDecompiled(updateUi);
+                        OperationTab.SaveDecompiled(updateUi);
                     break;
                 }
 
@@ -668,8 +672,8 @@ public class CUE4ParseViewModel : ViewModel
                 var ar = entry.CreateReader();
                 var configCache = new FConfigCacheIni(ar);
 
-                TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(configCache, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(configCache, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -701,7 +705,7 @@ public class CUE4ParseViewModel : ViewModel
 
                 using var stream = new MemoryStream(decompiled);
                 using var reader = new StreamReader(stream);
-                TabControl.SelectedTab.SetDocumentText(reader.ReadToEnd(), saveProperties, updateUi);
+                OperationTab.SetDocumentText(reader.ReadToEnd(), saveProperties, updateUi);
 
                 break;
             }
@@ -781,7 +785,7 @@ public class CUE4ParseViewModel : ViewModel
                 using var stream = new MemoryStream(data) { Position = 0 };
                 using var reader = new StreamReader(stream);
 
-                TabControl.SelectedTab.SetDocumentText(reader.ReadToEnd(), saveProperties, updateUi);
+                OperationTab.SetDocumentText(reader.ReadToEnd(), saveProperties, updateUi);
 
                 break;
             }
@@ -794,7 +798,7 @@ public class CUE4ParseViewModel : ViewModel
                 using var reader = new StreamReader(stream);
 
                 var parsedJson = JsonConvert.DeserializeObject(reader.ReadToEnd());
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(parsedJson, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(parsedJson, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -802,7 +806,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var metadata = new FTextLocalizationMetaDataResource(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(metadata, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(metadata, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -810,7 +814,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var locres = new FTextLocalizationResource(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(locres, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(locres, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -818,7 +822,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var registry = new FAssetRegistryState(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(registry, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(registry, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -826,7 +830,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var registry = new FGlobalShaderCache(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(registry, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(registry, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -834,7 +838,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var versePathLookup = new FGameFeatureVersePathLookup(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(versePathLookup, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(versePathLookup, Formatting.Indented), saveProperties, updateUi);
                 break;
             }
             case "bank":
@@ -846,7 +850,7 @@ public class CUE4ParseViewModel : ViewModel
                     break;
                 }
 
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(fmodReader, Formatting.Indented, converters: [new FmodSoundBankConverter(), new StringEnumConverter()]), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(fmodReader, Formatting.Indented, converters: [new FmodSoundBankConverter(), new StringEnumConverter()]), saveProperties, updateUi);
 
                 var extractedSounds = FmodProvider.ExtractBankSounds(fmodReader);
                 var directory = Path.GetDirectoryName(entry.Path) ?? "/FMOD/Desktop/";
@@ -862,7 +866,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var wwise = new WwiseReader(new FWwiseArchive(archive), new WwiseGameFileSource(entry));
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(wwise, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(wwise, Formatting.Indented), saveProperties, updateUi);
 
                 var medias = WwiseProvider.ExtractBankSounds(wwise);
                 foreach (var media in medias)
@@ -877,7 +881,7 @@ public class CUE4ParseViewModel : ViewModel
                 var archive = entry.CreateReader();
                 var awbReader = new AwbReader(archive);
 
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(awbReader, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(awbReader, Formatting.Indented), saveProperties, updateUi);
 
                 var directory = Path.GetDirectoryName(archive.Name) ?? "/Criware/";
                 var extractedSounds = CriWareProvider.ExtractCriWareSounds(awbReader, archive.Name);
@@ -893,7 +897,7 @@ public class CUE4ParseViewModel : ViewModel
                 var archive = entry.CreateReader();
                 var acbReader = new AcbReader(archive);
 
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(acbReader, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(acbReader, Formatting.Indented), saveProperties, updateUi);
 
                 var directory = Path.GetDirectoryName(archive.Name) ?? "/Criware/";
                 var extractedSounds = CriWareProvider.ExtractCriWareSounds(acbReader, archive.Name);
@@ -922,7 +926,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var header = new FOodleDictionaryArchive(archive).Header;
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(header, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(header, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -930,7 +934,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var ustbin = new FDeltaStringTable(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(ustbin, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(ustbin, Formatting.Indented), saveProperties, updateUi);
                 break;
             }
             case "png":
@@ -939,7 +943,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var data = Provider.SaveAsset(entry);
                 using var stream = new MemoryStream(data) { Position = 0 };
-                TabControl.SelectedTab.AddImage(entry.NameWithoutExtension, false, SKBitmap.Decode(stream), saveTextures, updateUi);
+                OperationTab.AddImage(entry.NameWithoutExtension, false, SKBitmap.Decode(stream), saveTextures, updateUi);
 
                 break;
             }
@@ -964,7 +968,7 @@ public class CUE4ParseViewModel : ViewModel
                 canvas.Translate(-bounds.Left, -bounds.Top);
                 canvas.DrawPicture(svg.Picture);
 
-                TabControl.SelectedTab.AddImage(entry.Name, data, bitmap, saveTextures, updateUi);
+                OperationTab.AddImage(entry.Name, data, bitmap, saveTextures, updateUi);
 
                 break;
             }
@@ -979,7 +983,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var ar = new FShaderCodeArchive(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(ar, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(ar, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -987,7 +991,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var ar = new FPipelineCacheFile(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(ar, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(ar, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -995,7 +999,7 @@ public class CUE4ParseViewModel : ViewModel
             {
                 var archive = entry.CreateReader();
                 var ar = new FShaderTypeHashes(archive);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(ar, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(ar, Formatting.Indented), saveProperties, updateUi);
 
                 break;
             }
@@ -1019,7 +1023,7 @@ public class CUE4ParseViewModel : ViewModel
         // Roco Kingdom: World
         void ProcessRocoBinFile(GameFile entry, bool updateUi, bool saveProperties)
         {
-            TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
+            OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
             var nonFileName = "/" + entry.NameWithoutExtension + ".non";
             var nonPath = Provider.Files.Keys.FirstOrDefault(k => k.EndsWith(nonFileName, StringComparison.OrdinalIgnoreCase));
 
@@ -1039,7 +1043,7 @@ public class CUE4ParseViewModel : ViewModel
                 }
 
                 var data = new FRocoAudioConfig(entry.CreateReader(), descEntry.CreateReader(), typeDescEntry.CreateReader());
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(data, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(data, Formatting.Indented), saveProperties, updateUi);
                 return;
             }
 
@@ -1058,7 +1062,7 @@ public class CUE4ParseViewModel : ViewModel
                     _ => null
                 };
 
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(data, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(data, Formatting.Indented), saveProperties, updateUi);
             }
             else if (entry.PathWithoutExtension.Contains("/Bin/"))
             {
@@ -1068,7 +1072,7 @@ public class CUE4ParseViewModel : ViewModel
 
         void ProcessAion2DatFile(GameFile entry, bool updateUi, bool saveProperties)
         {
-            TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
+            OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
             if (entry.NameWithoutExtension.EndsWith("_MapEvent"))
             {
                 var data = Provider.SaveAsset(entry);
@@ -1076,17 +1080,17 @@ public class CUE4ParseViewModel : ViewModel
                 using var stream = new MemoryStream(data) { Position = 0 };
                 using var reader = new StreamReader(stream);
 
-                TabControl.SelectedTab.SetDocumentText(reader.ReadToEnd(), saveProperties, updateUi);
+                OperationTab.SetDocumentText(reader.ReadToEnd(), saveProperties, updateUi);
             }
             else if (entry.NameWithoutExtension.Equals("L10NString"))
             {
                 var l10nData = new FAion2L10NFile(entry, Provider);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(l10nData, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(l10nData, Formatting.Indented), saveProperties, updateUi);
             }
             else if (entry.NameWithoutExtension.Equals("key_manifest"))
             {
                 var keymanifest = new FAion2KeyManifestFile(entry);
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(keymanifest, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(keymanifest, Formatting.Indented), saveProperties, updateUi);
             }
             else
             {
@@ -1098,7 +1102,7 @@ public class CUE4ParseViewModel : ViewModel
                     _ => new FAion2DataTableFile(entry, Provider)
                 };
 
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(datfile, Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(datfile, Formatting.Indented), saveProperties, updateUi);
             }
         }
 
@@ -1123,17 +1127,17 @@ public class CUE4ParseViewModel : ViewModel
                 File.WriteAllText(directory, JsonConvert.SerializeObject(files, Formatting.Indented));
             }
 
-            TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(dbc, Formatting.Indented), saveProperties, updateUi);
+            OperationTab.SetDocumentText(JsonConvert.SerializeObject(dbc, Formatting.Indented), saveProperties, updateUi);
         }
 
         // Ace Combat 8
         void ProcessACE8DatFile(GameFile entry, bool updateUi, bool saveProperties)
         {
-            TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
+            OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("json");
 
             if (entry.NameWithoutExtension.EndsWith("_Cmn"))
             {
-                TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(ACE8LocDecrypt.ReadKeysDatFile(entry), Formatting.Indented), saveProperties, updateUi);
+                OperationTab.SetDocumentText(JsonConvert.SerializeObject(ACE8LocDecrypt.ReadKeysDatFile(entry), Formatting.Indented), saveProperties, updateUi);
             }
             else
             {
@@ -1154,11 +1158,11 @@ public class CUE4ParseViewModel : ViewModel
                             locTable[$"UnknownKey_{k++}"] = values[i];
                         }
                     }
-                    TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(locTable, Formatting.Indented), saveProperties, updateUi);
+                    OperationTab.SetDocumentText(JsonConvert.SerializeObject(locTable, Formatting.Indented), saveProperties, updateUi);
                 }
                 else
                 {
-                    TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(ACE8LocDecrypt.ReadDatFile(entry), Formatting.Indented), saveProperties, updateUi);
+                    OperationTab.SetDocumentText(JsonConvert.SerializeObject(ACE8LocDecrypt.ReadDatFile(entry), Formatting.Indented), saveProperties, updateUi);
                 }
             }
         }
@@ -1217,13 +1221,13 @@ public class CUE4ParseViewModel : ViewModel
 
         var entry = Provider[fullPath];
         TabControl.AddTab(entry);
-        TabControl.SelectedTab.ScrollTrigger = objectName;
+        OperationTab.ScrollTrigger = objectName;
 
         var result = Provider.GetLoadPackageResult(entry, objectName);
 
-        TabControl.SelectedTab.TitleExtra = result.TabTitleExtra;
-        TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector(""); // json
-        TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(result.GetDisplayData(), Formatting.Indented), false, false);
+        OperationTab.TitleExtra = result.TabTitleExtra;
+        OperationTab.Highlighter = AvalonExtensions.HighlighterSelector(""); // json
+        OperationTab.SetDocumentText(JsonConvert.SerializeObject(result.GetDisplayData(), Formatting.Indented), false, false);
 
         for (var i = result.InclusiveStart; i < result.ExclusiveEnd; i++)
         {
@@ -1263,8 +1267,8 @@ public class CUE4ParseViewModel : ViewModel
                 if (verseDigest.ReadableCode is null || !TabControl.CanAddTabs) return false;
 
                 TabControl.AddTab($"{verseDigest.Name}.verse");
-                TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("verse");
-                TabControl.SelectedTab.SetDocumentText(Encoding.UTF8.GetString(verseDigest.ReadableCode), false, false);
+                OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("verse");
+                OperationTab.SetDocumentText(Encoding.UTF8.GetString(verseDigest.ReadableCode), false, false);
                 return true;
             }
             // Ace Combat 8
@@ -1273,8 +1277,8 @@ public class CUE4ParseViewModel : ViewModel
                 if (!TabControl.CanAddTabs) return false;
 
                 TabControl.AddTab($"{luaScript.Name}.lua");
-                TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("lua");
-                TabControl.SelectedTab.SetDocumentText(luaScript.Code, false, false);
+                OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("lua");
+                OperationTab.SetDocumentText(luaScript.Code, false, false);
                 return true;
             }
             case UPaperSprite when (isNone || saveTextures) && pointer.Object.Value is UPaperSprite paperSprite:
@@ -1286,7 +1290,7 @@ public class CUE4ParseViewModel : ViewModel
 
                 if (updateUi)
                 {
-                    TabControl.SelectedTab.AddImage(paperSprite, false, true);
+                    OperationTab.AddImage(paperSprite, false, true);
                 }
 
                 return false;
@@ -1300,7 +1304,7 @@ public class CUE4ParseViewModel : ViewModel
 
                 if (updateUi)
                 {
-                    TabControl.SelectedTab.AddImage(paperFlipbook, false, true);
+                    OperationTab.AddImage(paperFlipbook, false, true);
                 }
 
                 return false;
@@ -1314,7 +1318,7 @@ public class CUE4ParseViewModel : ViewModel
 
                 if (updateUi)
                 {
-                    TabControl.SelectedTab.AddImage(texture, false, true);
+                    OperationTab.AddImage(texture, false, true);
                 }
 
                 return false;
@@ -1347,7 +1351,7 @@ public class CUE4ParseViewModel : ViewModel
                 {
                     var fileName = sourceFile.SubstringAfterLast('/');
                     var path = Path.Combine(UserSettings.Default.TextureDirectory,
-                        UserSettings.Default.KeepDirectoryStructure ? TabControl.SelectedTab.Entry.Directory : "", fileName!).Replace('\\', '/');
+                        UserSettings.Default.KeepDirectoryStructure ? OperationTab.Entry.Directory : "", fileName!).Replace('\\', '/');
 
                     Directory.CreateDirectory(path.SubstringBeforeLast('/'));
 
@@ -1373,19 +1377,19 @@ public class CUE4ParseViewModel : ViewModel
                     }
                 }
 
-                TabControl.SelectedTab.AddImage(Path.GetFileName(sourceFile) ?? svgasset.Name + ".svg", data, bitmap, false, updateUi);
+                OperationTab.AddImage(Path.GetFileName(sourceFile) ?? svgasset.Name + ".svg", data, bitmap, false, updateUi);
                 return false;
             }
             case UBiomesMaskTextureData when (isNone || saveTextures) && pointer.Object.Value is UBiomesMaskTextureData biomes && biomes.MaskData is { } maskData:
             {
-                TabControl.SelectedTab.AddImage(biomes.Name, false, SKBitmap.Decode(maskData.Value), false, updateUi);
+                OperationTab.AddImage(biomes.Name, false, SKBitmap.Decode(maskData.Value), false, updateUi);
                 return false;
             }
             // Supermassive Games (for example - The Dark Pictures Anthology: House of Ashes etc.)
             case UExternalSource when (isNone || saveAudio) && pointer.Object.Value is UExternalSource externalSource:
             {
                 var audioName = Path.GetFileNameWithoutExtension(externalSource.ExternalSourcePath);
-                var outputPath = Path.Combine(TabControl.SelectedTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
+                var outputPath = Path.Combine(OperationTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
                 SaveAndPlaySound(cancellationToken, outputPath, "wem", externalSource.Data?.WemFile?.GetData() ?? [], saveAudio, updateUi);
                 return false;
             }
@@ -1453,7 +1457,7 @@ public class CUE4ParseViewModel : ViewModel
                     USQEXSEADSound sqexSound => sqexSound.SQEXSoundData?.ReadDataOnce() ?? [],
                     _ => [],
                 };
-                var sabPath = Path.Combine(TabControl.SelectedTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), squareEnixObject.Name);
+                var sabPath = Path.Combine(OperationTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), squareEnixObject.Name);
                 var extractedSounds = AudioPlayerViewModel.ExtractSquareEnixAudio(sabPath, data);
                 foreach (var soundPath in extractedSounds)
                 {
@@ -1477,13 +1481,13 @@ public class CUE4ParseViewModel : ViewModel
                     return false;
                 }
 
-                SaveAndPlaySound(cancellationToken, TabControl.SelectedTab.Entry.PathWithoutExtension.Replace('\\', '/'), audioFormat, data, saveAudio, updateUi);
+                SaveAndPlaySound(cancellationToken, OperationTab.Entry.PathWithoutExtension.Replace('\\', '/'), audioFormat, data, saveAudio, updateUi);
                 return false;
             }
             case UAkMediaAsset when (isNone || saveAudio) && pointer.Object.Value is UAkMediaAsset akMediaAsset:
             {
                 var audioName = akMediaAsset.MediaName ?? akMediaAsset.Name;
-                var outputPath = Path.Combine(TabControl.SelectedTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
+                var outputPath = Path.Combine(OperationTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
                 if (akMediaAsset.CurrentMediaAssetData?.ResolvedObject?.Object?.Value is UAkMediaAssetData akMediaAssetData)
                 {
                     var shouldDecompress = UserSettings.Default.CompressedAudioMode is ECompressedAudio.PlayDecompressed;
@@ -1508,7 +1512,7 @@ public class CUE4ParseViewModel : ViewModel
                         if (akMediaAsset.CurrentMediaAssetData?.ResolvedObject?.Object?.Value is UAkMediaAssetData akMediaAssetData)
                         {
                             var audioName = akMediaAsset.MediaName ?? $"{akAudioEventData.Outer.Name} ({akMediaAsset.ID})";
-                            var outputPath = Path.Combine(TabControl.SelectedTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
+                            var outputPath = Path.Combine(OperationTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
                             akMediaAssetData.Decode(shouldDecompress, out var audioFormat, out var data);
 
                             SaveAndPlaySound(cancellationToken, outputPath, audioFormat, data, saveAudio, updateUi);
@@ -1516,7 +1520,7 @@ public class CUE4ParseViewModel : ViewModel
                         if (Provider.Versions.Game is GAME_GearsofWarEDay && akMediaAsset.CustomGameData is FByteBulkData bulkData)
                         {
                             var audioName = akMediaAsset.MediaName ?? $"{akAudioEventData.Outer.Name} ({akMediaAsset.ID})";
-                            var outputPath = Path.Combine(TabControl.SelectedTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
+                            var outputPath = Path.Combine(OperationTab.Entry.PathWithoutExtension.Replace('\\', '/').SubstringBeforeLast('/'), audioName);
                             SaveAndPlaySound(cancellationToken, outputPath, "WEM", bulkData.Data, saveAudio, updateUi);
                         }
                     }
@@ -1655,7 +1659,7 @@ public class CUE4ParseViewModel : ViewModel
                     return false;
 
                 creator.ParseForInfo();
-                TabControl.SelectedTab.AddImage(pointer.Object.Value.Name, false, creator.Draw(), saveTextures, updateUi);
+                OperationTab.AddImage(pointer.Object.Value.Name, false, creator.Draw(), saveTextures, updateUi);
                 return true;
 
             }
@@ -1664,17 +1668,17 @@ public class CUE4ParseViewModel : ViewModel
 
     public void ShowMetadata(GameFile entry)
     {
-        ApplicationService.ApplicationView.IsAssetsExplorerVisible = false;
+        if (AssetOperationScope.Current == null) ApplicationService.ApplicationView.IsAssetsExplorerVisible = false;
 
         var package = Provider.LoadPackage(entry);
 
         if (TabControl.CanAddTabs) TabControl.AddTab(entry);
-        else TabControl.SelectedTab.SoftReset(entry);
+        else OperationTab.SoftReset(entry);
 
-        TabControl.SelectedTab.TitleExtra = "Metadata";
-        TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("");
+        OperationTab.TitleExtra = "Metadata";
+        OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("");
 
-        TabControl.SelectedTab.SetDocumentText(JsonConvert.SerializeObject(package, Formatting.Indented), false, false);
+        OperationTab.SetDocumentText(JsonConvert.SerializeObject(package, Formatting.Indented), false, false);
     }
 
     public void FindReferences(GameFile entry)
@@ -1691,15 +1695,15 @@ public class CUE4ParseViewModel : ViewModel
 
     public bool Decompile(GameFile entry, bool AddTab = true)
     {
-        if (TabControl.CanAddTabs && AddTab)
+        if (AssetOperationScope.Current == null && TabControl.CanAddTabs && AddTab)
         {
             ApplicationService.ApplicationView.IsAssetsExplorerVisible = false;
             TabControl.AddTab(entry);
         }
-        else TabControl.SelectedTab.SoftReset(entry);
+        else OperationTab.SoftReset(entry);
 
-        TabControl.SelectedTab.TitleExtra = "Decompiled";
-        TabControl.SelectedTab.Highlighter = AvalonExtensions.HighlighterSelector("cpp");
+        OperationTab.TitleExtra = "Decompiled";
+        OperationTab.Highlighter = AvalonExtensions.HighlighterSelector("cpp");
 
         var pkg = Provider.LoadPackage(entry);
         UClassCookedMetaData cookedMetaData = null;
@@ -1736,12 +1740,17 @@ public class CUE4ParseViewModel : ViewModel
         cpp = Regex.Replace(cpp, @"K2Node_DynamicCast_([A-Za-z0-9_]+)", "$1");
         cpp = Regex.Replace(cpp, @"K2Node_([A-Za-z0-9_]+)", "$1");
 
-        TabControl.SelectedTab.SetDocumentText(cpp, false, false);
+        OperationTab.SetDocumentText(cpp, false, false);
         return true;
     }
 
     private void SaveAndPlaySound(CancellationToken cancellationToken, string fullPath, string ext, byte[] data, bool saveAudio, bool updateUi)
     {
+        if (AssetOperationScope.Current?.AudioCaptured is { } capture)
+        {
+            capture(fullPath, ext, data);
+            return;
+        }
         if (fullPath.StartsWith('/')) fullPath = fullPath[1..];
         var extLower = ext.ToLowerInvariant();
         var baseFilePath = UserSettings.Default.KeepDirectoryStructure ? fullPath : fullPath.SubstringAfterLast('/');
@@ -1761,6 +1770,7 @@ public class CUE4ParseViewModel : ViewModel
                     savedAudioPath = wavFilePath;
                 else
                 {
+                    AssetOperationScope.Current?.Errors.Add("Audio conversion failed.");
                     Interlocked.Increment(ref FailedExportCount);
                     return;
                 }
@@ -1772,6 +1782,7 @@ public class CUE4ParseViewModel : ViewModel
             }
 
             Interlocked.Increment(ref ExportedCount);
+            AssetOperationScope.Current?.Files.Add(savedAudioPath);
             Log.Information("Successfully saved {FilePath}", savedAudioPath);
             if (updateUi && conversionSuccess)
             {
@@ -1803,10 +1814,11 @@ public class CUE4ParseViewModel : ViewModel
     {
         try
         {
-            ExportSessionViewModel.Instance.Session.Add(export);
+            (AssetOperationScope.Current?.Session ?? ExportSessionViewModel.Instance.Session).Add(export);
         }
         catch (Exception e)
         {
+            AssetOperationScope.Current?.Errors.Add(e.Message);
             Log.Error(e, "Could not add to export session");
         }
     }
@@ -1815,10 +1827,11 @@ public class CUE4ParseViewModel : ViewModel
     {
         try
         {
-            ExportSessionViewModel.Instance.Session.Add(new RawDataExporter(entry, Provider));
+            (AssetOperationScope.Current?.Session ?? ExportSessionViewModel.Instance.Session).Add(new RawDataExporter(entry, Provider));
         }
         catch (Exception e)
         {
+            AssetOperationScope.Current?.Errors.Add(e.Message);
             Log.Error(e, "Could not add to export session");
         }
     }

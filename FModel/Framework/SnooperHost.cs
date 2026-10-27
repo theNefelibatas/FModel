@@ -27,11 +27,31 @@ public sealed class SnooperHost(Func<EditorWindow> build, Action<Exception> onSt
     private Exception? _failure;
     private Thread? _thread;
 
+    public bool IsVisible => _window is { IsVisible: true };
+    private bool _automationActive;
+
+    public void BeginAutomation()
+    {
+        lock (_lock)
+        {
+            if (IsVisible) throw new InvalidOperationException("Close the interactive 3D viewer before starting an automation viewport.");
+            if (_window != null) Dispose();
+            if (_window != null) throw new InvalidOperationException("The interactive renderer is still shutting down.");
+            _automationActive = true;
+        }
+    }
+
+    public void EndAutomation()
+    {
+        lock (_lock) _automationActive = false;
+    }
+
     public EditorWindow? GetWindow()
     {
         Exception? failure;
         lock (_lock)
         {
+            if (_automationActive) return null;
             if (_window is { } current) return current;
 
             _thread ??= StartThread();

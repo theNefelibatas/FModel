@@ -18,7 +18,7 @@ public partial class LauncherWindow
         InitializeComponent();
     }
 
-    /* 双击列表项打开所选档案：OpenSelected 已有 running/corrupt 守卫，直接复用 */
+    /* 双击与 Open 使用相同入口；运行中的档案由其宿主显示窗口。 */
     private void OnProfileDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         ((LauncherViewModel) DataContext).OpenSelectedProfile();
