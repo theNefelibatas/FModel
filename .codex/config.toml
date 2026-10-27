@@ -4,6 +4,3 @@ command = "powershell.exe"
 args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", "./.codex/StartAssetTools.ps1"]
 startup_timeout_sec = 30
 tool_timeout_sec = 210
-
-[mcp_servers.asset_inspection.env]
-FMODEL_AUTOMATION_BUILD_DIRECTORY = "artifacts/gui-session-bin"
