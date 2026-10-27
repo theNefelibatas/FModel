@@ -18,6 +18,20 @@ namespace FModel.Views.Snooper;
 
 public class Snooper : GameWindow
 {
+    internal static NativeWindowSettings CreateWindowSettings(int width, int height) => new()
+    {
+        ClientSize = new OpenTK.Mathematics.Vector2i(width, height),
+        NumberOfSamples = Constants.SAMPLES_COUNT,
+        WindowBorder = WindowBorder.Resizable,
+        Flags = ContextFlags.ForwardCompatible,
+        Profile = ContextProfile.Core,
+        Vsync = VSyncMode.Adaptive,
+        APIVersion = new Version(4, 6),
+        StartVisible = false,
+        StartFocused = false,
+        Title = "3D Viewer"
+    };
+
     public readonly FramebufferObject Framebuffer;
     public readonly Renderer Renderer;
 

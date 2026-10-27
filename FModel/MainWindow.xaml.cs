@@ -28,8 +28,11 @@ public partial class MainWindow
     private ApplicationViewModel _applicationView => ApplicationService.ApplicationView;
     private DiscordHandler _discordHandler => DiscordService.DiscordHandler;
 
-    public MainWindow()
+    private readonly bool _reuseSession;
+
+    public MainWindow(bool reuseSession = false)
     {
+        _reuseSession = reuseSession;
         CommandBindings.Add(new CommandBinding(new RoutedCommand("ReloadMappings", typeof(MainWindow), new InputGestureCollection { new KeyGesture(Key.F12) }), OnMappingsReload));
         CommandBindings.Add(new CommandBinding(ApplicationCommands.Find, (_, _) => OnOpenAvalonFinder()));
         CommandBindings.Add(new CommandBinding(NavigationCommands.BrowseBack, (_, _) =>
@@ -83,11 +86,19 @@ public partial class MainWindow
 
     private void OnClosing(object sender, CancelEventArgs e)
     {
+        if (_reuseSession && !((App) Application.Current).IsAutomationClosing)
+        {
+            e.Cancel = true;
+            ((App) Application.Current).HideSessionWindow();
+            return;
+        }
         _discordHandler.Dispose();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // The host already owns a mounted provider. Reinitializing it would invalidate other clients' work.
+        if (_reuseSession) return;
         var newOrUpdated = UserSettings.Default.ShowChangelog;
 #if !DEBUG
         ApplicationService.ApiEndpointView.FModelApi.CheckForUpdates(true);
@@ -130,6 +141,8 @@ public partial class MainWindow
             }),
             UserSettings.Default.DecompileLua ? ApplicationViewModel.InitUnluac() : Task.CompletedTask
         ).ConfigureAwait(false);
+
+        ((App) Application.Current).MarkAutomationReady();
 
 #if DEBUG
         // await _threadWorkerView.Begin(cancellationToken =>

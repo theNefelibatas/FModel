@@ -320,6 +320,12 @@ public class Renderer : IDisposable
 
     public void Update(Snooper wnd, float deltaSeconds)
     {
+        UpdateScene(deltaSeconds);
+        UpdateInput(wnd, deltaSeconds);
+    }
+
+    public void UpdateScene(float deltaSeconds)
+    {
         if (Options.Animations.Count > 0) Options.Tracker.Update(deltaSeconds);
         foreach (var animation in Options.Animations)
         {
@@ -341,7 +347,10 @@ public class Renderer : IDisposable
                 skeletalModel.Skeleton.UpdateVertices();
             }
         }
+    }
 
+    private void UpdateInput(Snooper wnd, float deltaSeconds)
+    {
         CameraOp.Modify(wnd.KeyboardState, deltaSeconds);
 
         if (wnd.KeyboardState.IsKeyPressed(Keys.Z) &&
