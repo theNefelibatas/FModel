@@ -38,15 +38,15 @@ args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", "<absolute launcher
 startup_timeout_sec = 30
 tool_timeout_sec = 210
 
-[mcp_servers.asset_inspection.env]
-FMODEL_AUTOMATION_EXECUTABLE = "<absolute application executable>"
 ```
 
 Add asset-query guidance to the user-level `AGENTS.md` so conversations prefer this service, discover `capabilities` and `profiles`, and respect shared-session and persistence rules. If a nonempty user-level `AGENTS.override.md` exists, Codex reads that file instead. Preserve existing user settings and instructions when adding the service.
 
 For project-only access, place the same MCP entry in the repository's `.codex/config.toml` instead; Codex loads that layer for trusted projects. Project settings take precedence over user settings. Avoid keeping a duplicate project entry when managing the connection globally.
 
-The launcher resolves the application name from the desktop project and searches the build directory configured through `FMODEL_AUTOMATION_BUILD_DIRECTORY` in the MCP environment. Paths in that environment are relative to the repository root unless absolute. Without a build-directory override, it searches the desktop project's `bin` directory. Missing or ambiguous builds fail explicitly. To select a particular build, set `FMODEL_AUTOMATION_EXECUTABLE` to `<application executable>` in the MCP environment. Keep the executable's accompanying dependencies in place. The launcher never builds, restores or installs dependencies.
+By default, the launcher uses the installed .NET SDK to evaluate the desktop project with MSBuild and resolves its application host from `TargetDir`, `TargetName` and `_NativeExecutableExtension` (SDK property names). It does not scan other output directories or choose the newest executable. Evaluation includes imported build settings and uses the project's default `Configuration`; it does not read an IDE's last selected configuration. Set `FMODEL_AUTOMATION_CONFIGURATION` in the MCP environment to select a different configuration explicitly. A missing evaluated executable or SDK produces an error; the launcher never builds, restores or installs dependencies.
+
+For a custom or published build, set `FMODEL_AUTOMATION_EXECUTABLE` to `<application executable>` in the MCP environment; this bypasses SDK evaluation. Alternatively, an explicit `FMODEL_AUTOMATION_BUILD_DIRECTORY` searches only that directory recursively for exactly one matching application, using the evaluated executable name. Relative override paths are resolved against the repository root. Do not put machine-specific test output directories in shared configuration. Keep the executable's accompanying dependencies in place.
 
 After changing the MCP configuration, start a new conversation or restart the MCP connection. Inspect the client's MCP status if the service is unavailable. This connection starts the automation broker; game sessions are selected through the returned profiles and do not require manually opening the GUI first.
 
