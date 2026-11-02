@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using FModel.ViewModels;
 
 namespace FModel.Views;
@@ -11,6 +12,7 @@ public partial class LauncherWindow
 {
     /* 单实例激活（App.NativeMethods 同名注册）：运行时注册的消息 Id，进程首次使用时缓存 */
     private static int _launcherActivateMsgId = -1;
+    private DispatcherOperation _refreshOperation;
 
     public LauncherWindow()
     {
@@ -24,10 +26,21 @@ public partial class LauncherWindow
         ((LauncherViewModel) DataContext).OpenSelectedProfile();
     }
 
-    /* 窗口每次获得焦点时刷新列表（顺带刷新「运行中」状态，成本 = 枚举目录 + PID 检查） */
+    /* 激活消息处理完成后再刷新，避免在恢复窗口和键盘焦点期间移除列表项。 */
     private void OnActivated(object sender, System.EventArgs e)
     {
-        ((LauncherViewModel) DataContext).Refresh();
+        if (_refreshOperation?.Status == DispatcherOperationStatus.Pending) return;
+        _refreshOperation = Dispatcher.InvokeAsync(() =>
+        {
+            if (IsActive && WindowState != WindowState.Minimized)
+                ((LauncherViewModel) DataContext).Refresh();
+        }, DispatcherPriority.Background);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _refreshOperation?.Abort();
+        base.OnClosed(e);
     }
 
     /* 挂 HWND 消息钩子：第二个启动器实例在互斥量上未获所有权时广播激活，此处收到后置顶。 */
@@ -44,7 +57,12 @@ public partial class LauncherWindow
     {
         if (msg == _launcherActivateMsgId)
         {
-            Dispatcher.InvokeAsync(() => { Activate(); Topmost = true; Topmost = false; });
+            Dispatcher.InvokeAsync(() =>
+            {
+                Show();
+                if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+                Activate();
+            });
             handled = true;
         }
         return IntPtr.Zero;
