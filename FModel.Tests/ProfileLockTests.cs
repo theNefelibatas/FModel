@@ -36,7 +36,7 @@ public class ProfileLockTests : IDisposable
     }
 
     [Fact]
-    public void IsHeldByAliveProcess_TrueOnlyWithLivePid()
+    public void IsHeldByAliveProcess_TracksOwnerUntilRelease()
     {
         using var l = ProfileLock.TryAcquire("abc");
         Assert.True(ProfileLock.IsHeldByAliveProcess("abc"));
@@ -49,5 +49,30 @@ public class ProfileLockTests : IDisposable
         Assert.False(ProfileLock.IsHeldByAliveProcess("abc"));
         using var after = ProfileLock.TryAcquire("abc"); // 残留自愈
         Assert.NotNull(after);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LegacyPidFile_OnlyBlocksWhileOriginalProcessIsAlive(bool reusedPid)
+    {
+        using var process = Process.GetCurrentProcess();
+        var path = Path.Combine(ProfileStore.ProfilesDirectory, "abc.lock");
+        File.WriteAllText(path, process.Id.ToString());
+        if (reusedPid)
+            File.SetLastWriteTimeUtc(path, process.StartTime.ToUniversalTime().AddMinutes(-1));
+
+        Assert.Equal(!reusedPid, ProfileLock.IsHeldByAliveProcess("abc"));
+        using var lease = ProfileLock.TryAcquire("abc");
+        if (reusedPid)
+        {
+            Assert.NotNull(lease);
+            Assert.True(ProfileLock.IsHeldByAliveProcess("abc"));
+            Assert.Null(ProfileLock.TryAcquire("abc"));
+        }
+        else
+        {
+            Assert.Null(lease);
+        }
     }
 }
